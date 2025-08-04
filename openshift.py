@@ -1,6 +1,7 @@
 import subprocess
 import json
-import sys  # For flush
+import sys  # For flush and stderr
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def get_openshift_namespaces():
     """
@@ -20,7 +21,7 @@ def get_openshift_namespaces():
 def get_routes_for_namespace(namespace):
     """
     Retrieve route information for a given namespace using 'oc get routes -o json'.
-    Returns a list of route details.
+    Returns a tuple of (namespace, list of route details).
     """
     try:
         output = subprocess.check_output(['oc', 'get', 'routes', '-n', namespace, '-o', 'json']).decode('utf-8')
@@ -38,13 +39,13 @@ def get_routes_for_namespace(namespace):
                 'ingress_status': [ing.get('host', 'N/A') for ing in status.get('ingress', [])]
             }
             routes.append(route_info)
-        return routes
+        return namespace, routes
     except subprocess.CalledProcessError as e:
         print(f"Error retrieving routes for namespace '{namespace}': {e}", file=sys.stderr)
-        return []
+        return namespace, []
     except json.JSONDecodeError:
         print(f"Error parsing JSON for namespace '{namespace}'.", file=sys.stderr)
-        return []
+        return namespace, []
 
 def main():
     namespaces = get_openshift_namespaces()
@@ -52,14 +53,34 @@ def main():
         print("No namespaces found or error occurred.", file=sys.stderr)
         return
 
+    all_routes = {}
+    max_workers = 10  # Adjust based on your system's capabilities; e.g., 10-20 for 50 namespaces
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_ns = {executor.submit(get_routes_for_namespace, ns): ns for ns in namespaces}
+        for future in as_completed(future_to_ns):
+            ns = future_to_ns[future]
+            try:
+                _, routes = future.result()
+                print(f"Finished processing namespace: {ns}", flush=True)
+                if routes:
+                    all_routes[ns] = routes
+            except Exception as exc:
+                print(f"Namespace {ns} generated an exception: {exc}", file=sys.stderr)
+
+    # Ensure all namespaces are included, even if no routes
     for ns in namespaces:
-        print(f"Processing namespace: {ns}...", flush=True)
-        routes = get_routes_for_namespace(ns)
-        print(f"Finished processing namespace: {ns}", flush=True)
-        
-        # Print results immediately for this namespace
+        if ns not in all_routes:
+            all_routes[ns] = []
+
+    # Sort namespaces for consistent output (optional)
+    sorted_namespaces = sorted(all_routes.keys())
+
+    # Print the results
+    for ns in sorted_namespaces:
+        routes = all_routes[ns]
+        print(f"\nNamespace: {ns}")
         if routes:
-            print(f"\nNamespace: {ns}")
             for route in routes:
                 print(f"  Route: {route['name']}")
                 print(f"    Host: {route['host']}")
@@ -69,7 +90,7 @@ def main():
                 print(f"    Ingress Hosts: {', '.join(route['ingress_status'])}")
                 print("---")
         else:
-            print(f"No routes found in namespace: {ns}")
+            print("  No routes found.")
 
 if __name__ == "__main__":
     main()
