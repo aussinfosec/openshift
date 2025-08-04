@@ -1,5 +1,6 @@
 import subprocess
 import json
+import sys  # For flush
 
 def get_openshift_namespaces():
     """
@@ -10,10 +11,10 @@ def get_openshift_namespaces():
         namespaces = output.splitlines()
         return namespaces
     except subprocess.CalledProcessError as e:
-        print(f"Error retrieving namespaces: {e}")
+        print(f"Error retrieving namespaces: {e}", file=sys.stderr)
         return []
     except FileNotFoundError:
-        print("Error: 'oc' command not found. Ensure OpenShift CLI is installed and in PATH.")
+        print("Error: 'oc' command not found. Ensure OpenShift CLI is installed and in PATH.", file=sys.stderr)
         return []
 
 def get_routes_for_namespace(namespace):
@@ -39,35 +40,36 @@ def get_routes_for_namespace(namespace):
             routes.append(route_info)
         return routes
     except subprocess.CalledProcessError as e:
-        print(f"Error retrieving routes for namespace '{namespace}': {e}")
+        print(f"Error retrieving routes for namespace '{namespace}': {e}", file=sys.stderr)
         return []
     except json.JSONDecodeError:
-        print(f"Error parsing JSON for namespace '{namespace}'.")
+        print(f"Error parsing JSON for namespace '{namespace}'.", file=sys.stderr)
         return []
 
 def main():
     namespaces = get_openshift_namespaces()
     if not namespaces:
-        print("No namespaces found or error occurred.")
+        print("No namespaces found or error occurred.", file=sys.stderr)
         return
 
-    all_routes = {}
     for ns in namespaces:
+        print(f"Processing namespace: {ns}...", flush=True)
         routes = get_routes_for_namespace(ns)
+        print(f"Finished processing namespace: {ns}", flush=True)
+        
+        # Print results immediately for this namespace
         if routes:
-            all_routes[ns] = routes
-
-    # Print the results
-    for ns, routes in all_routes.items():
-        print(f"\nNamespace: {ns}")
-        for route in routes:
-            print(f"  Route: {route['name']}")
-            print(f"    Host: {route['host']}")
-            print(f"    Path: {route['path']}")
-            print(f"    To Service: {route['to_service']}")
-            print(f"    TLS Enabled: {route['tls_enabled']}")
-            print(f"    Ingress Hosts: {', '.join(route['ingress_status'])}")
-            print("---")
+            print(f"\nNamespace: {ns}")
+            for route in routes:
+                print(f"  Route: {route['name']}")
+                print(f"    Host: {route['host']}")
+                print(f"    Path: {route['path']}")
+                print(f"    To Service: {route['to_service']}")
+                print(f"    TLS Enabled: {route['tls_enabled']}")
+                print(f"    Ingress Hosts: {', '.join(route['ingress_status'])}")
+                print("---")
+        else:
+            print(f"No routes found in namespace: {ns}")
 
 if __name__ == "__main__":
     main()
