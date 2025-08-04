@@ -53,44 +53,46 @@ def main():
         print("No namespaces found or error occurred.", file=sys.stderr)
         return
 
-    all_routes = {}
-    max_workers = 10  # Adjust based on your system's capabilities; e.g., 10-20 for 50 namespaces
+    output_file = 'openshift.txt'
+    with open(output_file, 'w') as f:
+        max_workers = 10  # Adjust based on your system's capabilities; e.g., 10-20 for 50 namespaces
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_ns = {executor.submit(get_routes_for_namespace, ns): ns for ns in namespaces}
-        for future in as_completed(future_to_ns):
-            ns = future_to_ns[future]
-            try:
-                _, routes = future.result()
-                print(f"Finished processing namespace: {ns}", flush=True)
-                if routes:
-                    all_routes[ns] = routes
-            except Exception as exc:
-                print(f"Namespace {ns} generated an exception: {exc}", file=sys.stderr)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_ns = {executor.submit(get_routes_for_namespace, ns): ns for ns in namespaces}
+            for future in as_completed(future_to_ns):
+                ns = future_to_ns[future]
+                try:
+                    _, routes = future.result()
+                    print(f"Finished processing namespace: {ns}", flush=True)
+                    
+                    # Prepare output string for this namespace
+                    output_lines = [f"\nNamespace: {ns}"]
+                    if routes:
+                        for route in routes:
+                            output_lines.extend([
+                                f"  Route: {route['name']}",
+                                f"    Host: {route['host']}",
+                                f"    Path: {route['path']}",
+                                f"    To Service: {route['to_service']}",
+                                f"    TLS Enabled: {route['tls_enabled']}",
+                                f"    Ingress Hosts: {', '.join(route['ingress_status'])}",
+                                "---"
+                            ])
+                    else:
+                        output_lines.append("  No routes found.")
+                    
+                    # Print to console
+                    for line in output_lines:
+                        print(line)
+                    
+                    # Write to file
+                    f.write('\n'.join(output_lines) + '\n')
+                    f.flush()  # Ensure immediate write
+                    
+                except Exception as exc:
+                    print(f"Namespace {ns} generated an exception: {exc}", file=sys.stderr)
 
-    # Ensure all namespaces are included, even if no routes
-    for ns in namespaces:
-        if ns not in all_routes:
-            all_routes[ns] = []
-
-    # Sort namespaces for consistent output (optional)
-    sorted_namespaces = sorted(all_routes.keys())
-
-    # Print the results
-    for ns in sorted_namespaces:
-        routes = all_routes[ns]
-        print(f"\nNamespace: {ns}")
-        if routes:
-            for route in routes:
-                print(f"  Route: {route['name']}")
-                print(f"    Host: {route['host']}")
-                print(f"    Path: {route['path']}")
-                print(f"    To Service: {route['to_service']}")
-                print(f"    TLS Enabled: {route['tls_enabled']}")
-                print(f"    Ingress Hosts: {', '.join(route['ingress_status'])}")
-                print("---")
-        else:
-            print("  No routes found.")
+    print(f"\nOutput saved to {output_file}", flush=True)
 
 if __name__ == "__main__":
     main()
